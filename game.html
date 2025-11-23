@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Special Day Dodger</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        #gameContainer {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            padding: 20px;
+            max-width: 840px;
+            width: 100%;
+        }
+
+        h1 {
+            text-align: center;
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+
+        #gameCanvas {
+            display: block;
+            margin: 0 auto;
+            border: 2px solid #333;
+            border-radius: 8px;
+            background: white;
+            cursor: default;
+        }
+
+        .controls {
+            text-align: center;
+            margin-top: 15px;
+            color: #333;
+            font-size: 0.9em;
+        }
+
+        .controls span {
+            margin: 0 10px;
+            display: inline-block;
+        }
+
+        .controls strong {
+            color: #667eea;
+        }
+
+        #muteBtn {
+            display: block;
+            margin: 15px auto 0;
+            padding: 10px 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: background 0.3s;
+        }
+
+        #muteBtn:hover {
+            background: #5568d3;
+        }
+
+        .info {
+            text-align: center;
+            margin-top: 15px;
+            color: #666;
+            font-size: 0.85em;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <h1>Special Day Dodger</h1>
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        <div class="controls">
+            <span><strong>Move:</strong> Arrow Keys / WASD</span>
+            <span><strong>Shoot:</strong> Space</span>
+            <span><strong>Start:</strong> Enter</span>
+            <span><strong>Mute:</strong> M</span>
+        </div>
+        <div class="info">
+            Help Andreas dodge wedding responsibilities! Avoid or shoot obstacles to survive.
+        </div>
+    </div>
+
+    <script>
+        // Game Constants
+        const SCREEN_WIDTH = 800;
+        const SCREEN_HEIGHT = 600;
+        const PLAYER_SIZE = 100;
+        const FLOWER_SIZE = 100;
+        const SPREADSHEET_SIZE = 60;
+        const INVITATION_SIZE = 60;
+        const LASER_WIDTH = 20;
+        const LASER_HEIGHT = 40;
+        const SPEED_INCREMENT = 0.005;
+        const FPS = 60;
+        const COLLISION_BUFFER = 0.2;
+
+        // Game Canvas
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Game State
+        let gameState = 'start'; // 'start', 'playing', 'gameOver', 'enterInitials', 'leaderboard'
+        let playerX = 10;
+        let playerY = SCREEN_HEIGHT / 2 - PLAYER_SIZE / 2;
+        let playerSpeed = 5;
+        let laser = null;
+        let laserSpeed = 7;
+        let obstacles = [];
+        let obstacleSpeed = 2;
+        let spawnRate = 0.02;
+        let normalSpawnRate = 0.02;
+        let speedMultiplier = 1.25;
+        let tasksAvoided = 0;
+        let specialEventTimer = Date.now();
+        let specialEventInterval = Math.random() * 10000 + 20000; // 20-30 seconds
+        let maddieDisplayTime = -10000;
+        let boostEndTime = -10000;
+        let mute = false;
+        let playerInitials = '';
+        let leaderboard = [];
+        let frameCount = 0;
+
+        // Input State
+        const keys = {};
+
+        // Load Images
+        const images = {};
+        const imagesToLoad = {
+            andreas: 'images/andreas.png',
+            spreadsheet: 'images/spreadsheet.png',
+            flowers: 'images/flowers.png',
+            invitation: 'images/invitation.png',
+            maddie: 'images/maddievillain.png'
+        };
+
+        let imagesLoaded = 0;
+        const totalImages = Object.keys(imagesToLoad).length;
+
+        // Load all images
+        Object.keys(imagesToLoad).forEach(key => {
+            const img = new Image();
+            img.src = imagesToLoad[key];
+            img.onload = () => {
+                imagesLoaded++;
+                if (imagesLoaded === totalImages) {
+                    console.log('All images loaded');
+                }
+            };
+            img.onerror = () => {
+                console.error(`Failed to load image: ${imagesToLoad[key]}`);
+                imagesLoaded++;
+            };
+            images[key] = img;
+        });
+
+        // Load Leaderboard from localStorage
+        function loadLeaderboard() {
+            const stored = localStorage.getItem('specialDayDodgerLeaderboard');
+            if (stored) {
+                try {
+                    leaderboard = JSON.parse(stored);
+                } catch (e) {
+                    leaderboard = [];
+                }
+            }
+        }
+
+        // Save Leaderboard to localStorage
+        function saveLeaderboard() {
+            localStorage.setItem('specialDayDodgerLeaderboard', JSON.stringify(leaderboard));
+        }
+
+        // Initialize game
+        loadLeaderboard();
+
+        // Event Listeners
+        document.addEventListener('keydown', (e) => {
+            keys[e.key.toLowerCase()] = true;
+            keys[e.key] = true;
+
+            // Handle special keys
+            if (e.key === ' ') {
+                e.preventDefault();
+                if (gameState === 'playing' && !laser) {
+                    laser = {
+                        x: playerX + PLAYER_SIZE / 2 - LASER_WIDTH / 2,
+                        y: playerY
+                    };
+                }
+            }
+
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                if (gameState === 'start') {
+                    startGame();
+                } else if (gameState === 'leaderboard') {
+                    resetGame();
+                }
+            }
+
+            if (e.key.toLowerCase() === 'm') {
+                mute = !mute;
+            }
+
+            // Handle initial entry
+            if (gameState === 'enterInitials' && playerInitials.length < 3) {
+                if (/^[a-zA-Z]$/.test(e.key)) {
+                    playerInitials += e.key.toUpperCase();
+                }
+            }
+
+            if (e.key === 'Backspace' && gameState === 'enterInitials') {
+                playerInitials = playerInitials.slice(0, -1);
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            keys[e.key.toLowerCase()] = false;
+            keys[e.key] = false;
+        });
+
+        // Game Functions
+        function startGame() {
+            gameState = 'playing';
+            playerX = 10;
+            playerY = SCREEN_HEIGHT / 2 - PLAYER_SIZE / 2;
+            laser = null;
+            obstacles = [];
+            obstacleSpeed = 2;
+            spawnRate = normalSpawnRate;
+            tasksAvoided = 0;
+            specialEventTimer = Date.now();
+            specialEventInterval = Math.random() * 10000 + 20000;
+            maddieDisplayTime = -10000;
+            boostEndTime = -10000;
+            frameCount = 0;
+        }
+
+        function resetGame() {
+            gameState = 'start';
+            playerInitials = '';
+        }
+
+        function handleInput() {
+            if (keys['arrowleft'] || keys['a']) playerX -= playerSpeed;
+            if (keys['arrowright'] || keys['d']) playerX += playerSpeed;
+            if (keys['arrowup'] || keys['w']) playerY -= playerSpeed;
+            if (keys['arrowdown'] || keys['s']) playerY += playerSpeed;
+        }
+
+        function wrapPlayer() {
+            // Vertical wrapping
+            if (playerY < -PLAYER_SIZE * 0.35) {
+                playerY = SCREEN_HEIGHT - PLAYER_SIZE * 0.65;
+            } else if (playerY + PLAYER_SIZE * 0.65 > SCREEN_HEIGHT) {
+                playerY = -PLAYER_SIZE * 0.35;
+            }
+
+            // Horizontal boundaries
+            if (playerX < 0) playerX = 0;
+            if (playerX > SCREEN_WIDTH - PLAYER_SIZE) {
+                playerX = SCREEN_WIDTH - PLAYER_SIZE;
+            }
+        }
+
+        function updateLaser() {
+            if (laser) {
+                laser.x += laserSpeed;
+                if (laser.x > SCREEN_WIDTH) {
+                    laser = null;
+                }
+            }
+        }
+
+        function spawnObstacle() {
+            if (Math.random() < spawnRate) {
+                const obstacleTypes = [
+                    { image: images.spreadsheet, size: SPREADSHEET_SIZE },
+                    { image: images.flowers, size: FLOWER_SIZE },
+                    { image: images.invitation, size: INVITATION_SIZE }
+                ];
+                const type = obstacleTypes[Math.floor(Math.random() * obstacleTypes.length)];
+                obstacles.push({
+                    x: SCREEN_WIDTH,
+                    y: Math.random() * (SCREEN_HEIGHT - type.size),
+                    image: type.image,
+                    size: type.size
+                });
+            }
+        }
+
+        function updateObstacles() {
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                obstacles[i].x -= obstacleSpeed;
+                if (obstacles[i].x < -FLOWER_SIZE) {
+                    obstacles.splice(i, 1);
+                    tasksAvoided++;
+                }
+            }
+            obstacleSpeed += SPEED_INCREMENT / FPS;
+        }
+
+        function checkCollisions() {
+            const buffer = COLLISION_BUFFER;
+            const px = playerX + PLAYER_SIZE * buffer;
+            const py = playerY + PLAYER_SIZE * buffer;
+            const psize = PLAYER_SIZE * (1 - 2 * buffer);
+
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                const obstacle = obstacles[i];
+                const ox = obstacle.x + obstacle.size * buffer;
+                const oy = obstacle.y + obstacle.size * buffer;
+                const osize = obstacle.size * (1 - 2 * buffer);
+
+                // Check player collision
+                if (px < ox + osize && px + psize > ox &&
+                    py < oy + osize && py + psize > oy) {
+                    return true;
+                }
+
+                // Check laser collision
+                if (laser &&
+                    laser.x + LASER_WIDTH > obstacle.x &&
+                    laser.x < obstacle.x + obstacle.size &&
+                    laser.y < obstacle.y + obstacle.size &&
+                    laser.y + LASER_HEIGHT > obstacle.y) {
+                    obstacles.splice(i, 1);
+                    laser = null;
+                }
+            }
+            return false;
+        }
+
+        function handleSpecialEvent() {
+            const now = Date.now();
+            if (now - specialEventTimer > specialEventInterval) {
+                maddieDisplayTime = now;
+                boostEndTime = now + 10000; // 10 seconds
+                spawnRate = Math.min(normalSpawnRate * 3, 0.1);
+                specialEventTimer = now;
+                specialEventInterval = Math.random() * 10000 + 20000;
+                return true;
+            }
+            return false;
+        }
+
+        function speedUp() {
+            const maxSpawnRate = 0.12;
+            const maxSpeed = 4;
+            const duration = 30 * FPS; // 30 seconds
+
+            spawnRate = Math.min(spawnRate + (maxSpawnRate - normalSpawnRate) / duration, maxSpawnRate);
+            obstacleSpeed = Math.min(obstacleSpeed + (maxSpeed - 2) / duration, maxSpeed);
+        }
+
+        function gameOver() {
+            gameState = 'gameOver';
+            setTimeout(() => {
+                const qualifies = leaderboard.length < 5 ||
+                                tasksAvoided > leaderboard[leaderboard.length - 1].score;
+                if (qualifies) {
+                    gameState = 'enterInitials';
+                    playerInitials = '';
+                } else {
+                    gameState = 'leaderboard';
+                }
+            }, 3000);
+        }
+
+        function submitScore() {
+            if (playerInitials.length === 3) {
+                leaderboard.push({ name: playerInitials, score: tasksAvoided });
+                leaderboard.sort((a, b) => b.score - a.score);
+                leaderboard = leaderboard.slice(0, 5);
+                saveLeaderboard();
+                gameState = 'leaderboard';
+            }
+        }
+
+        // Drawing Functions
+        function drawText(text, x, y, size = 24, color = 'black', align = 'left') {
+            ctx.fillStyle = color;
+            ctx.font = `${size}px Arial`;
+            ctx.textAlign = align;
+            ctx.fillText(text, x, y);
+        }
+
+        function drawCenteredText(text, y, size = 24, color = 'black') {
+            drawText(text, SCREEN_WIDTH / 2, y, size, color, 'center');
+        }
+
+        function drawMultilineText(text, x, y, lineHeight = 30) {
+            const lines = text.split('\n');
+            lines.forEach((line, i) => {
+                drawText(line, x, y + i * lineHeight);
+            });
+        }
+
+        function drawStartScreen() {
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+            drawCenteredText('Special Day Dodger', 150, 42, '#667eea');
+            drawCenteredText('Help Andreas dodge the wedding responsibilities', 220, 28, '#333');
+            drawCenteredText('by avoiding or lasering them.', 260, 28, '#333');
+
+            drawCenteredText('Arrows to move.', 340, 22, '#333');
+            drawCenteredText('Space bar to shoot.', 370, 22, '#333');
+            drawCenteredText('M to mute music.', 400, 22, '#333');
+
+            drawCenteredText('Press Enter to Start', 480, 26, '#667eea');
+        }
+
+        function drawGameOverScreen() {
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+            drawCenteredText('Oops. Responsibility caught up with Andreas.',
+                           SCREEN_HEIGHT / 2 - 40, 24, '#333');
+            drawCenteredText(`Tasks avoided: ${tasksAvoided}`,
+                           SCREEN_HEIGHT / 2, 28, '#667eea');
+        }
+
+        function drawEnterInitials() {
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+            drawCenteredText('Enter Your Initials:', SCREEN_HEIGHT / 2 - 60, 24, '#333');
+            drawCenteredText(playerInitials + '_'.repeat(3 - playerInitials.length),
+                           SCREEN_HEIGHT / 2, 50, '#667eea');
+
+            if (playerInitials.length === 3) {
+                drawCenteredText('Press Enter to continue', SCREEN_HEIGHT / 2 + 60, 20, '#666');
+                setTimeout(() => submitScore(), 1000);
+            }
+        }
+
+        function drawLeaderboard() {
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+            drawCenteredText('LEADERBOARD - TASKS AVOIDED', 100, 24, '#667eea');
+
+            leaderboard.forEach((entry, i) => {
+                drawText(`${i + 1}. ${entry.name} - ${entry.score}`,
+                        120, 150 + i * 40, 24, '#333');
+            });
+
+            drawText('Press Enter to Restart', 120, 400, 24, '#333');
+        }
+
+        function drawGame() {
+            // Clear screen
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+            // Draw player
+            if (images.andreas.complete) {
+                ctx.drawImage(images.andreas, playerX, playerY, PLAYER_SIZE, PLAYER_SIZE);
+            } else {
+                ctx.fillStyle = 'blue';
+                ctx.fillRect(playerX, playerY, PLAYER_SIZE, PLAYER_SIZE);
+            }
+
+            // Draw obstacles
+            obstacles.forEach(obstacle => {
+                if (obstacle.image.complete) {
+                    ctx.drawImage(obstacle.image, obstacle.x, obstacle.y,
+                                obstacle.size, obstacle.size);
+                } else {
+                    ctx.fillStyle = 'red';
+                    ctx.fillRect(obstacle.x, obstacle.y, obstacle.size, obstacle.size);
+                }
+            });
+
+            // Draw laser
+            if (laser) {
+                ctx.fillStyle = 'black';
+                ctx.fillRect(laser.x, laser.y, LASER_WIDTH, LASER_HEIGHT);
+            }
+
+            // Draw Maddie special event
+            const now = Date.now();
+            if (now - maddieDisplayTime < 5000) {
+                const textX = SCREEN_WIDTH - 270;
+                drawText("IT'S MY SPECIAL", textX, 120, 20, 'black');
+                drawText("DAY!!!", textX + 10, 150, 20, 'black');
+
+                if (images.maddie.complete) {
+                    ctx.drawImage(images.maddie, SCREEN_WIDTH - 220,
+                                SCREEN_HEIGHT / 2 - 100, 200, 200);
+                }
+            }
+
+            // Draw score
+            drawText(`Tasks avoided: ${tasksAvoided}`, 20, 40, 24, 'black');
+        }
+
+        // Main Game Loop
+        function gameLoop() {
+            if (gameState === 'start') {
+                drawStartScreen();
+            } else if (gameState === 'playing') {
+                handleInput();
+                wrapPlayer();
+                spawnObstacle();
+                updateObstacles();
+                updateLaser();
+
+                frameCount++;
+                const elapsedSeconds = frameCount / FPS;
+
+                // Speed up between 15 and 45 seconds
+                if (elapsedSeconds > 15 && elapsedSeconds < 45) {
+                    speedUp();
+                }
+
+                handleSpecialEvent();
+
+                // End boost
+                if (Date.now() > boostEndTime) {
+                    spawnRate = normalSpawnRate;
+                }
+
+                // Check collisions
+                if (checkCollisions()) {
+                    gameOver();
+                } else {
+                    drawGame();
+                }
+            } else if (gameState === 'gameOver') {
+                drawGameOverScreen();
+            } else if (gameState === 'enterInitials') {
+                drawEnterInitials();
+            } else if (gameState === 'leaderboard') {
+                drawLeaderboard();
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Start the game loop
+        gameLoop();
+    </script>
+</body>
+</html>
