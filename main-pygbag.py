@@ -59,7 +59,7 @@ try:
         pygame.mixer.music.load("audio/whistle_tune.ogg")
         audio_enabled = True
     except:
-        pygame.mixer.music.load("audio/whistle_tune.mp3")
+        pygame.mixer.music.load("audio/whistle_tune.ogg")
         audio_enabled = True
     pygame.mixer.music.play(-1)
 except Exception as e:
@@ -247,7 +247,7 @@ def handle_special_event():
                 try:
                     special_sound = pygame.mixer.Sound("audio/special_day.ogg")
                 except:
-                    special_sound = pygame.mixer.Sound("audio/special_day.mp3")
+                    special_sound = pygame.mixer.Sound("audio/special_day.ogg")
                 special_sound.play()
             except Exception as e:
                 print("Could not play special_day sound:", e)
